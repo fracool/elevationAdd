@@ -55,7 +55,7 @@ drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 .
 -rw-r--r--@  1 fraser  staff    89B  6 Jul 00:26 TQ54nw_DTM_1m.tfw
 -rw-r--r--@  1 fraser  staff   2.6K  6 Jul 00:26 TQ54nw_DTM_1m.tif.aux.xml
 -rw-r--r--@  1 fraser  staff    20K  6 Jul 00:26 TQ54nw_DTM_1m.tif.xml
-fraser@MacBookAir elevationAdd %```
+fraser@MacBookAir elevationAdd % ```
 
 
 Then to apply the LIDAR elevation (or whichever other elevation map) used you can run the script:
