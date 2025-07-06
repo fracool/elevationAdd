@@ -1,3 +1,4 @@
+#! /usr/bin/env python3
 import os
 import gpxpy
 import rasterio
@@ -75,9 +76,9 @@ def tag_gpx_with_elevation(gpx_path, rasters, output_path):
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Tag GPX file with elevation data from raster files.")
-    parser.add_argument('-d', "folder", type=str, help="Folder containing .tif raster files. .tif can be in subfolders of the specified folder.", required=True)
-    parser.add_argument('-g', "gpx_file", type=str, help="Input GPX file to tag with elevation", required=True)
-    parser.add_argument('-o', "output_file", type=str, help="Output GPX file with elevation data", required=True)
+    parser.add_argument('-d', "--folder", type=str, help="Folder containing .tif raster files. .tif can be in subfolders of the specified folder.", required=True)
+    parser.add_argument('-g', "--gpx_file", type=str, help="Input GPX file to tag with elevation", required=True)
+    parser.add_argument('-o', "--output_file", type=str, help="Output GPX file with elevation data", required=True)
 
     args = parser.parse_args()
     if args.folder:
