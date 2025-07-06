@@ -88,3 +88,7 @@ options:
 
 After running you can check the output gpx (its similar to an xml file) It will use the closest meter elevation from the map (if you use the 1m LIDAR DTM as in the example) which is much more accurate in most cases than the data which nasa, google, OSM provides!
 
+The script requires the following python modules: 
+`pip3 install gpxpy rasterio pyproj`
+
+
