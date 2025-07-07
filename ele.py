@@ -4,12 +4,9 @@ import gpxpy
 import rasterio
 from pyproj import Transformer
 import argparse
+from geopy.distance import geodesic
+from gpxpy.gpx import GPXTrackPoint
 
-"""This script loads elevation data from .tif raster files, transforms coordinates from WGS84 to British National Grid (EPSG:27700),"""
-"""and tags a GPX file with elevation data based on the closest raster."""
-"""Get rasters from https://environment.data.gov.uk/survey"""
-
-# Load all .tif rasters and their bounds
 def load_rasters(folder):
     rasters = []
     for dirpath, _, filenames in os.walk(folder):
@@ -25,42 +22,59 @@ def load_rasters(folder):
     print(f"✅ Total rasters loaded: {len(rasters)}")
     return rasters
 
-
-
-# Transform coordinates from WGS84 to EPSG:27700 (British National Grid)
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
 
-# Find elevation from correct raster
 def get_elevation(rasters, lon, lat):
     x, y = transformer.transform(lon, lat)
-    print(f"Transformed ({lon}, {lat}) to BNG (x={x:.2f}, y={y:.2f})")
-
-    found_raster = False
     for bounds, raster in rasters:
-        print(f"Checking raster: {raster.name}")
-        print(f"Raster bounds: {bounds}")
         if bounds.left <= x <= bounds.right and bounds.bottom <= y <= bounds.top:
-            found_raster = True
             try:
                 val = list(raster.sample([(x, y)]))[0][0]
-                print(f"✅ Elevation found in {raster.name}: {val}m at ({lon}, {lat})")
                 return float(val)
             except Exception as e:
-                print(f"⚠️ Sampling error at ({x}, {y}) in {raster.name}: {e}")
+                print(f"⚠️ Sampling error at ({x}, {y}): {e}")
                 return None
-
-    if not found_raster:
-        print(f"❌ No raster bounds match for ({x:.2f}, {y:.2f}) from ({lon}, {lat})")
     return None
 
+def interpolate_points(p1, p2, max_spacing=1.0):
+    start = (p1.latitude, p1.longitude)
+    end = (p2.latitude, p2.longitude)
+    distance = geodesic(start, end).meters
 
-# Update GPX file with elevation
-def tag_gpx_with_elevation(gpx_path, rasters, output_path):
+    if distance <= max_spacing:
+        return []
+
+    num_points = int(distance // max_spacing)
+    points = []
+
+    for i in range(1, num_points + 1):
+        f = i / (num_points + 1)
+        lat = p1.latitude + (p2.latitude - p1.latitude) * f
+        lon = p1.longitude + (p2.longitude - p1.longitude) * f
+        elev = None
+        if p1.elevation is not None and p2.elevation is not None:
+            elev = p1.elevation + (p2.elevation - p1.elevation) * f
+        points.append(GPXTrackPoint(lat, lon, elevation=elev))
+    return points
+
+def densify_segment(segment, max_spacing=1.0):
+    new_points = []
+    for i in range(len(segment.points) - 1):
+        p1 = segment.points[i]
+        p2 = segment.points[i + 1]
+        new_points.append(p1)
+        new_points.extend(interpolate_points(p1, p2, max_spacing))
+    new_points.append(segment.points[-1])
+    segment.points = new_points
+
+def tag_gpx_with_elevation(gpx_path, rasters, output_path, densify=False, max_spacing=1.0):
     with open(gpx_path) as f:
         gpx = gpxpy.parse(f)
 
     for track in gpx.tracks:
         for segment in track.segments:
+            if densify:
+                densify_segment(segment, max_spacing)
             for point in segment.points:
                 elev = get_elevation(rasters, point.longitude, point.latitude)
                 if elev is not None:
@@ -70,25 +84,24 @@ def tag_gpx_with_elevation(gpx_path, rasters, output_path):
         f.write(gpx.to_xml())
     print(f"✅ Saved tagged GPX to: {output_path}")
 
-
-
-# Run
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Tag GPX file with elevation data from raster files.")
-    parser.add_argument('-d', "--folder", type=str, help="Folder containing .tif raster files. .tif can be in subfolders of the specified folder.", required=True)
-    parser.add_argument('-g', "--gpx_file", type=str, help="Input GPX file to tag with elevation", required=True)
-    parser.add_argument('-o', "--output_file", type=str, help="Output GPX file with elevation data", required=True)
+    parser.add_argument('-d', "--folder", type=str, required=True, help="Folder containing .tif raster files")
+    parser.add_argument('-g', "--gpx_file", type=str, required=True, help="Input GPX file")
+    parser.add_argument('-o', "--output_file", type=str, required=True, help="Output GPX file")
+    parser.add_argument('--densify', action="store_true", help="Densify the GPX with interpolated points ≤ max spacing")
+    parser.add_argument('--max_spacing', type=float, default=1.0, help="Max spacing (in meters) between GPX points when densifying")
 
     args = parser.parse_args()
-    if args.folder:
-        folder = args.folder
-    else:
-        folder = "./tiffs"  # default folder
 
-
-    rasters = load_rasters(folder)
+    rasters = load_rasters(args.folder)
     for bounds, raster in rasters:
         print(f"{raster.name} CRS: {raster.crs}, Bounds: {bounds}")
 
-    tag_gpx_with_elevation(args.gpx_file, rasters, args.output_file)
+    tag_gpx_with_elevation(
+        args.gpx_file,
+        rasters,
+        args.output_file,
+        densify=args.densify,
+        max_spacing=args.max_spacing
+    )
