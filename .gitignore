@@ -1,1 +1,3 @@
 /tiffs/
+__pycache__/
+*.pyc

@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
 import os
+import sys
 import gpxpy
 import rasterio
 from pyproj import Transformer
@@ -21,6 +22,10 @@ def load_rasters(folder):
                     print(f"❌ Failed to load {path}: {e}")
     print(f"✅ Total rasters loaded: {len(rasters)}")
     return rasters
+
+def close_rasters(rasters):
+    for _, raster in rasters:
+        raster.close()
 
 transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
 
@@ -58,6 +63,8 @@ def interpolate_points(p1, p2, max_spacing=1.0):
     return points
 
 def densify_segment(segment, max_spacing=1.0):
+    if len(segment.points) < 2:
+        return
     new_points = []
     for i in range(len(segment.points) - 1):
         p1 = segment.points[i]
@@ -79,6 +86,8 @@ def tag_gpx_with_elevation(gpx_path, rasters, output_path, densify=False, max_sp
                 elev = get_elevation(rasters, point.longitude, point.latitude)
                 if elev is not None:
                     point.elevation = elev
+                else:
+                    print(f"⚠️ No elevation data for point ({point.latitude}, {point.longitude})")
 
     with open(output_path, 'w') as f:
         f.write(gpx.to_xml())
@@ -94,14 +103,27 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    if not os.path.isdir(args.folder):
+        parser.error(f"Raster folder not found: {args.folder}")
+    if not os.path.isfile(args.gpx_file):
+        parser.error(f"GPX file not found: {args.gpx_file}")
+
     rasters = load_rasters(args.folder)
+
+    if not rasters:
+        print("❌ No raster files found. Exiting.")
+        sys.exit(1)
+
     for bounds, raster in rasters:
         print(f"{raster.name} CRS: {raster.crs}, Bounds: {bounds}")
 
-    tag_gpx_with_elevation(
-        args.gpx_file,
-        rasters,
-        args.output_file,
-        densify=args.densify,
-        max_spacing=args.max_spacing
-    )
+    try:
+        tag_gpx_with_elevation(
+            args.gpx_file,
+            rasters,
+            args.output_file,
+            densify=args.densify,
+            max_spacing=args.max_spacing
+        )
+    finally:
+        close_rasters(rasters)
