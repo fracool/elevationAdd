@@ -1,94 +1,87 @@
-This script can be used to add more precise elevation data to GPX route files. 
-The UK government published LIDAR Composite DTM at 1M detail which is freely available for download at https://environment.data.gov.uk/survey.
+# elevationAdd
 
-To use the script, download the tiles which cover your route and extract the zips into a directory, your tif folder should look like this once you extract the tile folders from the zips:
+Add precise elevation data to GPX route files using UK government LIDAR DTM (Digital Terrain Model) raster tiles.
+
+The UK government publishes LIDAR Composite DTM data at 1-metre resolution, freely available at
+https://environment.data.gov.uk/survey. This script reads those GeoTIFF tiles and stamps each point in a GPX file
+with the corresponding ground elevation — much more accurate than GPS-recorded or cloud-based sources (Google, NASA, OSM).
+
+> **Note:** The raster data must use the British National Grid coordinate system (EPSG:27700), so this tool is designed for UK coverage.
+
+## Requirements
+
+- Python 3
+- pip packages:
+
 ```
-fraser@MacBookAir elevationAdd % ls -alth tiffs
-total 32
-drwxr-xr-x@ 13 fraser  staff   416B  6 Jul 13:12 ..
-drwxr-xr-x@ 42 fraser  staff   1.3K  6 Jul 13:03 .
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD86sw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD86nw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD76nw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD76ne
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD66nw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD66ne
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD57se
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD56sw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD56se
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD56nw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD56ne
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD46sw
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD46se
-drwx------@  7 fraser  staff   224B  6 Jul 13:00 lidar_composite_dtm-2022-1-SD46ne
--rw-r--r--@  1 fraser  staff    10K  6 Jul 12:02 .DS_Store
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ54nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ33se
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ52ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ64ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ54sw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ63nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ64sw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ32ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ54ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ63ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ54se
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ53nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ62nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ53sw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ64se
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ63sw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ34ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ53ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ62ne
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ42nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ53se
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ63se
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ64nw
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 lidar_composite_dtm-2022-1-TQ33ne
--rw-r--r--@  1 fraser  staff   1.2K  6 Jul 01:31 check_list.txt
-fraser@MacBookAir elevationAdd % ls -alth tiffs/lidar_composite_dtm-2022-1-TQ54nw
-total 90336
-drwxr-xr-x@ 42 fraser  staff   1.3K  6 Jul 13:03 ..
-drwxr-xr-x@  7 fraser  staff   224B  6 Jul 11:46 .
--rw-r--r--@  1 fraser  staff    44M  6 Jul 00:26 TQ54nw_DTM_1m.tif
--rw-r--r--@  1 fraser  staff   156K  6 Jul 00:26 TQ54nw_DTM_1m_Metadata.gpkg
--rw-r--r--@  1 fraser  staff    89B  6 Jul 00:26 TQ54nw_DTM_1m.tfw
--rw-r--r--@  1 fraser  staff   2.6K  6 Jul 00:26 TQ54nw_DTM_1m.tif.aux.xml
--rw-r--r--@  1 fraser  staff    20K  6 Jul 00:26 TQ54nw_DTM_1m.tif.xml
-fraser@MacBookAir elevationAdd %
+pip3 install gpxpy rasterio pyproj geopy
 ```
 
+Or install from the included `requirements.txt`:
 
-Then to apply the LIDAR elevation (or whichever other elevation map) used you can run the script:
 ```
+pip3 install -r requirements.txt
+```
+
+## Usage
+
+```
+./ele.py -d <raster_folder> -g <input.gpx> -o <output.gpx> [--densify] [--max_spacing <meters>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `-d`, `--folder` | Folder containing `.tif` raster files (searched recursively) |
+| `-g`, `--gpx_file` | Input GPX file to tag with elevation |
+| `-o`, `--output_file` | Output GPX file with elevation data |
+| `--densify` | Insert extra points between existing track points so the elevation profile has finer detail |
+| `--max_spacing` | Maximum distance in metres between points when densifying (default: `1.0`) |
+
+### Preparing raster data
+
+Download the LIDAR tiles that cover your route from the link above and extract the zip files into a single directory. The script walks sub-folders automatically, so the layout can look like this:
+
+```
+tiffs/
+├── lidar_composite_dtm-2022-1-SD86sw/
+│   └── SD86sw_DTM_1m.tif
+├── lidar_composite_dtm-2022-1-SD86nw/
+│   └── SD86nw_DTM_1m.tif
+└── ...
+```
+
+### Example
+
+```bash
 ./ele.py -d tiffs -g WOR-Day1\(CravenArms\).gpx -o WOR-Day1+LIDAR.gpx
+```
+
+```
+Loaded: tiffs/lidar_composite_dtm-2022-1-SD86sw/SD86sw_DTM_1m.tif
 ...
-Raster bounds: BoundingBox(left=380000.0, bottom=460000.0, right=385000.0, top=465000.0)
-✅ Elevation found in tiffs/lidar_composite_dtm-2022-1-SD86sw/SD86sw_DTM_1m.tif: 138.77200317382812m at (-2.30096, 54.06198)
+✅ Total rasters loaded: 14
 ✅ Saved tagged GPX to: WOR-Day1+LIDAR.gpx
 ```
 
-Example options:
-```
-(.venv) fraser@MacBookAir elevationAdd % ./ele.py -h                                                          
-usage: ele.py [-h] -d FOLDER -g GPX_FILE -o OUTPUT_FILE
+### Densify example
 
-Tag GPX file with elevation data from raster files.
+If your GPX track has long gaps between points, `--densify` will interpolate additional points
+at up to `--max_spacing` metres apart so the elevation profile captures more terrain detail:
 
-options:
-  -h, --help            show this help message and exit
-  -d, --folder FOLDER   Folder containing .tif raster files. .tif can be in subfolders of the specified folder.
-  -g, --gpx_file GPX_FILE
-                        Input GPX file to tag with elevation
-  -o, --output_file OUTPUT_FILE
-                        Output GPX file with elevation data
-(.venv) fraser@MacBookAir elevationAdd % 
+```bash
+./ele.py -d tiffs -g route.gpx -o route_dense.gpx --densify --max_spacing 2.0
 ```
 
-After running you can check the output gpx (its similar to an xml file) It will use the closest meter elevation from the map (if you use the 1m LIDAR DTM as in the example) which is much more accurate in most cases than the data which nasa, google, OSM provides!
+## How it works
 
-The script requires the following python modules: 
-`pip3 install gpxpy rasterio pyproj`
+1. All `.tif` raster files in the specified folder (and sub-folders) are loaded.
+2. GPS coordinates (WGS 84 / EPSG:4326) are transformed to British National Grid (EPSG:27700).
+3. For each track point the script finds the raster tile whose bounding box contains the point and samples the elevation at the nearest pixel.
+4. If `--densify` is enabled, extra points are linearly interpolated between existing track points before elevation tagging.
+5. The result is written to a new GPX file.
 
+## Limitations
 
+- Only supports raster tiles in EPSG:27700 (UK LIDAR data).
+- Elevation is sampled from the single nearest pixel; no sub-pixel interpolation is performed.
+- Densification uses linear interpolation of latitude/longitude, which is acceptable for short distances but less precise over very long segments.
