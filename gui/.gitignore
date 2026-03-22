@@ -1,0 +1,5 @@
+gpx-lidar-gui
+gpx-lidar-gui.exe
+*.app
+# Build-time copy of ele.py (baked into binary via go:embed)
+ele.py
