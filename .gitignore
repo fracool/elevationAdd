@@ -1,4 +1,3 @@
 /tiffs/
-gui/gpx-lidar-gui
-gui/gpx-lidar-gui.exe
-gui/*.app
+*.gpx
+.idea/

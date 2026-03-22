@@ -78,7 +78,7 @@ def tag_gpx_with_elevation(gpx_path, rasters, output_path, densify=False, max_sp
             for point in segment.points:
                 elev = get_elevation(rasters, point.longitude, point.latitude)
                 if elev is not None:
-                    point.elevation = elev
+                    point.elevation = float("{:.2f}".format(elev))
 
     with open(output_path, 'w') as f:
         f.write(gpx.to_xml())
@@ -88,12 +88,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Tag GPX file with elevation data from raster files.")
     parser.add_argument('-d', "--folder", type=str, required=True, help="Folder containing .tif raster files")
     parser.add_argument('-g', "--gpx_file", type=str, required=True, help="Input GPX file")
-    parser.add_argument('-o', "--output_file", type=str, required=True, help="Output GPX file")
+    parser.add_argument('-o', "--output_file", type=str, default="default", help="Output GPX file")
     parser.add_argument('--densify', action="store_true", help="Densify the GPX with interpolated points ≤ max spacing")
     parser.add_argument('--max_spacing', type=float, default=1.0, help="Max spacing (in meters) between GPX points when densifying")
 
     args = parser.parse_args()
-
+    if args.output_file == "default":
+        args.output_file = os.path.splitext(args.gpx_file)[0] + "-lidar.gpx"
     rasters = load_rasters(args.folder)
     for bounds, raster in rasters:
         print(f"{raster.name} CRS: {raster.crs}, Bounds: {bounds}")
