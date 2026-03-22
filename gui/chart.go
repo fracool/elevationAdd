@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"sync"
@@ -26,13 +27,15 @@ type ElevationChart struct {
 	emptyLbl *widget.Label
 	hasData  bool
 
-	mu     sync.RWMutex
+	mu     sync.Mutex
 	points []TrackPoint
 	dists  []float64 // cumulative distances parallel to points
 
-	// Pre-computed per-column lookup. Recomputed when width changes.
+	// Pre-computed per render. Invalidated when data or width changes.
 	colWidth int
 	colEle   []float64
+	minE     float64
+	maxE     float64
 }
 
 var (
@@ -59,7 +62,10 @@ func NewElevationChart(title string) *ElevationChart {
 	c.emptyLbl = widget.NewLabel("No data")
 	c.emptyLbl.Alignment = fyne.TextAlignCenter
 
-	c.raster = canvas.NewRasterWithPixels(c.drawPixel)
+	// drawImage renders the whole chart image at once — far faster than
+	// the per-pixel callback because elevationRange is called once, not
+	// once per pixel, and there is no per-pixel lock overhead.
+	c.raster = canvas.NewRaster(c.drawImage)
 	c.raster.SetMinSize(fyne.NewSize(320, 160))
 	c.raster.Hide() // hidden until data is loaded
 
@@ -68,18 +74,20 @@ func NewElevationChart(title string) *ElevationChart {
 
 // SetData updates the chart with new track points and triggers a redraw.
 func (c *ElevationChart) SetData(pts []TrackPoint) {
-	c.mu.Lock()
-	c.points = pts
-	c.dists = CumulativeDistance(pts)
-	c.colWidth = 0 // invalidate pre-computed lookup
-	c.colEle = nil
-
-	// Update axis labels
+	dists := CumulativeDistance(pts)
 	minE, maxE := elevationRange(pts)
 	totalDist := 0.0
-	if len(c.dists) > 0 {
-		totalDist = c.dists[len(c.dists)-1]
+	if len(dists) > 0 {
+		totalDist = dists[len(dists)-1]
 	}
+
+	c.mu.Lock()
+	c.points = pts
+	c.dists = dists
+	c.colWidth = 0 // invalidate cached columns
+	c.colEle = nil
+	c.minE = minE
+	c.maxE = maxE
 	c.mu.Unlock()
 
 	hasEle := len(pts) >= 2 && !math.IsNaN(minE)
@@ -92,7 +100,6 @@ func (c *ElevationChart) SetData(pts []TrackPoint) {
 		c.emptyLbl.Hide()
 		c.raster.Show()
 	} else if len(pts) >= 2 {
-		// Track points exist but no elevation data
 		c.minLbl.Text = ""
 		c.maxLbl.Text = ""
 		c.distLbl.Text = fmt.Sprintf("%.1f km", totalDist/1000)
@@ -121,7 +128,6 @@ func (c *ElevationChart) Clear() {
 }
 
 func (c *ElevationChart) CreateRenderer() fyne.WidgetRenderer {
-	// Stack the raster and empty label so only one is visible at a time.
 	centre := container.NewStack(c.raster, container.NewCenter(c.emptyLbl))
 	content := container.NewBorder(
 		container.NewHBox(c.titleLbl),
@@ -132,79 +138,129 @@ func (c *ElevationChart) CreateRenderer() fyne.WidgetRenderer {
 	return widget.NewSimpleRenderer(content)
 }
 
-// drawPixel is called by canvas.Raster for every pixel.
-func (c *ElevationChart) drawPixel(x, y, w, h int) color.Color {
-	c.mu.RLock()
+// drawImage renders the full elevation chart into an image.NRGBA.
+// Called by canvas.Raster once per frame — not once per pixel.
+func (c *ElevationChart) drawImage(w, h int) image.Image {
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+
+	c.mu.Lock()
 	pts := c.points
 	dists := c.dists
-	c.mu.RUnlock()
-
-	if len(pts) < 2 {
-		return theme.BackgroundColor()
-	}
-
-	// Recompute column lookup table when width changes
-	c.mu.Lock()
-	if c.colWidth != w {
+	if len(pts) >= 2 && c.colWidth != w {
 		c.colEle = precomputeColumns(pts, dists, w)
 		c.colWidth = w
+		// Recompute range in case it wasn't set yet (e.g. width changed
+		// before SetData had a chance to store it).
+		c.minE, c.maxE = elevationRange(pts)
 	}
 	cols := c.colEle
+	minE := c.minE
+	maxE := c.maxE
 	c.mu.Unlock()
 
-	if cols == nil {
-		return theme.BackgroundColor()
+	bg := theme.BackgroundColor()
+	if len(pts) < 2 || cols == nil {
+		fillImage(img, bg)
+		return img
 	}
 
-	// Plot area padding (pixels)
-	const padLeft, padRight, padTop, padBottom = 2, 2, 2, 2
-	plotW := w - padLeft - padRight
-	plotH := h - padTop - padBottom
-
-	px := x - padLeft
-	py := y - padTop
-	if px < 0 || py < 0 || px >= plotW || py >= plotH {
-		return theme.BackgroundColor()
-	}
-
-	// Column elevation
-	if px >= len(cols) {
-		return theme.BackgroundColor()
-	}
-	eleAtX := cols[px]
-	if math.IsNaN(eleAtX) {
-		return theme.BackgroundColor()
-	}
-
-	minE, maxE := elevationRange(pts)
 	if maxE == minE {
 		maxE = minE + 1
 	}
 
-	// Map elevation to pixel row (y=0 is top)
-	eleNorm := (eleAtX - minE) / (maxE - minE)
-	// Add small padding so the line doesn't sit at the very edge
-	eleRow := plotH - 1 - int(eleNorm*float64(plotH-4)) - 2
+	const padLeft, padRight, padTop, padBottom = 2, 2, 2, 2
+	plotW := w - padLeft - padRight
+	plotH := h - padTop - padBottom
 
-	// Horizontal grid lines at 25% / 50% / 75%
-	for _, frac := range []float64{0.25, 0.5, 0.75} {
-		gridRow := plotH - 1 - int(frac*float64(plotH-4)) - 2
-		if py == gridRow {
-			return chartGridColor
+	// Pre-compute the elevation row for each column.
+	eleRow := make([]int, plotW)
+	for px := 0; px < plotW && px < len(cols); px++ {
+		e := cols[px]
+		if math.IsNaN(e) {
+			eleRow[px] = -1
+			continue
+		}
+		norm := (e - minE) / (maxE - minE)
+		eleRow[px] = plotH - 1 - int(norm*float64(plotH-4)) - 2
+	}
+
+	// Pre-compute grid rows.
+	gridRows := [3]int{}
+	for i, frac := range []float64{0.25, 0.5, 0.75} {
+		gridRows[i] = plotH - 1 - int(frac*float64(plotH-4)) - 2
+	}
+
+	// Render row by row (better cache locality than column by column).
+	for py := 0; py < h; py++ {
+		for px := 0; px < w; px++ {
+			// Border padding
+			ix := px - padLeft
+			iy := py - padTop
+			if ix < 0 || iy < 0 || ix >= plotW || iy >= plotH {
+				setPixel(img, px, py, bg)
+				continue
+			}
+			if ix >= len(eleRow) {
+				setPixel(img, px, py, bg)
+				continue
+			}
+
+			er := eleRow[ix]
+			if er < 0 {
+				setPixel(img, px, py, bg)
+				continue
+			}
+
+			// Grid lines
+			isGrid := false
+			for _, gr := range gridRows {
+				if iy == gr {
+					isGrid = true
+					break
+				}
+			}
+			if isGrid {
+				setPixel(img, px, py, chartGridColor)
+				continue
+			}
+
+			if iy == er || iy == er-1 {
+				setPixel(img, px, py, chartLineColor)
+			} else if iy > er {
+				setPixel(img, px, py, chartFillColor)
+			} else {
+				setPixel(img, px, py, bg)
+			}
 		}
 	}
+	return img
+}
 
-	if py == eleRow || py == eleRow-1 {
-		return chartLineColor
+// setPixel writes an NRGBA colour directly into the image buffer.
+func setPixel(img *image.NRGBA, x, y int, c color.Color) {
+	r, g, b, a := c.RGBA()
+	off := img.PixOffset(x, y)
+	img.Pix[off+0] = uint8(r >> 8)
+	img.Pix[off+1] = uint8(g >> 8)
+	img.Pix[off+2] = uint8(b >> 8)
+	img.Pix[off+3] = uint8(a >> 8)
+}
+
+// fillImage fills the entire image with a single colour.
+func fillImage(img *image.NRGBA, c color.Color) {
+	r, g, b, a := c.RGBA()
+	r8, g8, b8, a8 := uint8(r>>8), uint8(g>>8), uint8(b>>8), uint8(a>>8)
+	pix := img.Pix
+	for i := 0; i < len(pix); i += 4 {
+		pix[i+0] = r8
+		pix[i+1] = g8
+		pix[i+2] = b8
+		pix[i+3] = a8
 	}
-	if py > eleRow {
-		return chartFillColor
-	}
-	return theme.BackgroundColor()
 }
 
 // precomputeColumns builds a []float64 of length plotW with the interpolated
-// elevation at each pixel column. O(n) per column avoided by single sweep.
+// elevation at each pixel column. Single O(n+plotW) sweep.
 func precomputeColumns(pts []TrackPoint, dists []float64, w int) []float64 {
 	const padLeft, padRight = 2, 2
 	plotW := w - padLeft - padRight
@@ -223,7 +279,6 @@ func precomputeColumns(pts []TrackPoint, dists []float64, w int) []float64 {
 	for px := 0; px < plotW; px++ {
 		distAtX := (float64(px) / float64(plotW)) * totalDist
 
-		// Advance ptIdx to the segment containing distAtX
 		for ptIdx < len(dists)-2 && dists[ptIdx+1] < distAtX {
 			ptIdx++
 		}
